@@ -204,6 +204,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            flex-wrap: wrap;
         }
 
         .customer-code {
@@ -298,6 +299,13 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
+        }
+
+        .form-group input[type="radio"] {
+            margin: 0 !important;
+            flex-shrink: 0 !important;
+            width: 20px !important;
+            height: 20px !important;
         }
 
         /* モーダル */
@@ -436,6 +444,7 @@
         .container-actions {
             display: flex;
             gap: 8px;
+            flex-wrap: wrap;
         }
 
         .container-actions button {
@@ -655,7 +664,6 @@
                 <div class="nav-item" onclick="switchModule('deliveries')">
                     <span>📦</span>
                     <span>実績管理</span>
-                    <span class="notification-badge" style="display: none;" id="deliveries-badge">0</span>
                 </div>
                 <div class="nav-item" onclick="switchModule('costs')">
                     <span>💰</span>
@@ -707,6 +715,75 @@
             loading: false,
             showNotifications: false
         };
+
+        // ========================================
+        // 検索機能（修正版）
+        // ========================================
+        function handleSearch(value) {
+            console.log('🔍 検索実行:', value);
+            state.searchQuery = value;
+            render();
+        }
+
+        // ========================================
+        // ソート機能（修正版）
+        // ========================================
+        function daysDiff(dateStr) {
+            if (!dateStr) return 9999;
+            try {
+                const d = new Date(dateStr);
+                if (isNaN(d.getTime())) return 9999;
+                const today = new Date();
+                const diff = Math.floor((today - d) / 86400000);
+                console.log(`📅 日数計算: ${dateStr} → ${diff}日前`);
+                return diff;
+            } catch (e) {
+                console.error('日付エラー:', e);
+                return 9999;
+            }
+        }
+
+        function freshnessRank(customer) {
+            const dd = daysDiff(customer.updatedAt || customer.createdAt);
+            if (dd <= 7) return 0;   // NEW
+            if (dd <= 30) return 1;  // 更新あり
+            return 2;                 // 通常
+        }
+
+        function sortCustomers(customers) {
+            const sorted = customers.slice().sort((a, b) => {
+                const ra = freshnessRank(a);
+                const rb = freshnessRank(b);
+                
+                // フレッシュネス順
+                if (ra !== rb) return ra - rb;
+                
+                // コード順
+                const codeA = String(a.code || '').toLowerCase();
+                const codeB = String(b.code || '').toLowerCase();
+                return codeA.localeCompare(codeB, 'ja');
+            });
+            
+            console.log('📊 ソート結果:', sorted.map(c => ({
+                code: c.code,
+                name: c.name,
+                rank: freshnessRank(c),
+                days: daysDiff(c.updatedAt || c.createdAt)
+            })));
+            
+            return sorted;
+        }
+
+        function getBadgeHtml(updatedAt, createdAt) {
+            const dd = daysDiff(updatedAt || createdAt);
+            if (dd <= 7) {
+                return '<span style="background: #ff3b30; color: white; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 12px; margin-left: 8px;">NEW</span>';
+            }
+            if (dd <= 30) {
+                return '<span style="background: #ffb020; color: white; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 12px; margin-left: 8px;">更新あり</span>';
+            }
+            return '';
+        }
 
         // ========================================
         // 通知機能
@@ -806,8 +883,9 @@
                 await loadAllData();
                 renderNotifications();
                 render();
+                console.log('✅ 初期化完了');
             } catch (error) {
-                console.error('初期化エラー:', error);
+                console.error('❌ 初期化エラー:', error);
                 alert('データの読み込みに失敗しました: ' + error.message);
             } finally {
                 hideLoading();
@@ -815,7 +893,7 @@
         }
 
         // ========================================
-        // データ読み込み
+        // データ読み込み（修正版）
         // ========================================
         async function loadAllData() {
             return new Promise((resolve, reject) => {
@@ -825,7 +903,11 @@
                     delete window[callbackName];
                     
                     if (response.success) {
-                        state.customers = response.data.customers || [];
+                        // updatedAtがない場合は補完
+                        state.customers = (response.data.customers || []).map(c => ({
+                            ...c,
+                            updatedAt: c.updatedAt || c.createdAt || new Date().toISOString()
+                        }));
                         state.containers = response.data.containers || [];
                         state.vehicles = response.data.vehicles || [];
                         
@@ -834,6 +916,16 @@
                             containers: state.containers.length,
                             vehicles: state.vehicles.length
                         });
+                        
+                        // サンプル表示
+                        if (state.customers.length > 0) {
+                            console.log('📋 顧客サンプル:', state.customers.slice(0, 3).map(c => ({
+                                code: c.code,
+                                name: c.name,
+                                updatedAt: c.updatedAt,
+                                days: daysDiff(c.updatedAt)
+                            })));
+                        }
                         
                         resolve(response.data);
                     } else {
@@ -884,6 +976,7 @@
         // ========================================
         function switchModule(moduleName) {
             state.activeModule = moduleName;
+            state.selectedCustomer = null; // 重要：顧客詳細をクリア
             
             // ナビゲーションの active 状態を更新
             document.querySelectorAll('.nav-item').forEach(item => {
@@ -900,30 +993,35 @@
         function render() {
             const content = document.getElementById('main-content');
             
-            switch (state.activeModule) {
-                case 'dashboard':
-                    content.innerHTML = renderDashboard();
-                    break;
-                case 'customers':
-                    content.innerHTML = renderCustomers();
-                    break;
-                case 'vehicles':
-                    content.innerHTML = '<div class="content"><h2>🚗 車両管理は開発中...</h2></div>';
-                    break;
-                case 'deliveries':
-                    content.innerHTML = '<div class="content"><h2>📦 実績管理は開発中...</h2></div>';
-                    break;
-                case 'costs':
-                    content.innerHTML = '<div class="content"><h2>💰 原価計算は開発中...</h2></div>';
-                    break;
-                case 'settings':
-                    content.innerHTML = '<div class="content"><h2>⚙️ 設定は開発中...</h2></div>';
-                    break;
-                default:
-                    content.innerHTML = renderCustomers();
+            try {
+                switch (state.activeModule) {
+                    case 'dashboard':
+                        content.innerHTML = renderDashboard();
+                        break;
+                    case 'customers':
+                        content.innerHTML = renderCustomers();
+                        break;
+                    case 'vehicles':
+                        content.innerHTML = '<div class="content"><h2>🚗 車両管理は開発中...</h2></div>';
+                        break;
+                    case 'deliveries':
+                        content.innerHTML = '<div class="content"><h2>📦 実績管理は開発中...</h2></div>';
+                        break;
+                    case 'costs':
+                        content.innerHTML = '<div class="content"><h2>💰 原価計算は開発中...</h2></div>';
+                        break;
+                    case 'settings':
+                        content.innerHTML = '<div class="content"><h2>⚙️ 設定は開発中...</h2></div>';
+                        break;
+                    default:
+                        content.innerHTML = renderCustomers();
+                }
+                
+                renderNotifications();
+            } catch (error) {
+                console.error('❌ レンダリングエラー:', error);
+                content.innerHTML = `<div class="content"><h2>エラーが発生しました</h2><p>${error.message}</p></div>`;
             }
-            
-            renderNotifications();
         }
 
         // ========================================
@@ -978,16 +1076,31 @@
         }
 
         function renderCustomerList() {
+            console.log('📋 顧客一覧レンダリング開始');
+            
+            // フィルタリング
             const filteredCustomers = state.customers.filter(c => {
                 if (!state.searchQuery) return true;
                 const query = state.searchQuery.toLowerCase();
-                return (
-                    c.name?.toLowerCase().includes(query) ||
-                    c.code?.toLowerCase().includes(query) ||
-                    c.kana?.toLowerCase().includes(query) ||
-                    c.address?.toLowerCase().includes(query)
+                const match = (
+                    (c.name || '').toLowerCase().includes(query) ||
+                    (c.code || '').toLowerCase().includes(query) ||
+                    (c.kana || '').toLowerCase().includes(query) ||
+                    (c.address || '').toLowerCase().includes(query) ||
+                    (c.notes || '').toLowerCase().includes(query) ||
+                    (c.slipInstructions || '').toLowerCase().includes(query)
                 );
+                return match;
             });
+            
+            console.log('🔍 フィルタリング:', {
+                元の件数: state.customers.length,
+                絞り込み後: filteredCustomers.length,
+                キーワード: state.searchQuery
+            });
+            
+            // ソート
+            const sortedCustomers = sortCustomers(filteredCustomers);
             
             return `
                 <div class="header">
@@ -1007,25 +1120,27 @@
                 <div class="content">
                     <div class="search-bar">
                         <input type="text" 
-                               placeholder="顧客名、コード、住所で検索..." 
+                               id="search-input"
+                               placeholder="顧客名、コード、住所、注意事項で検索..." 
                                value="${state.searchQuery}"
-                               oninput="state.searchQuery = this.value; render();">
+                               oninput="handleSearch(this.value)">
                     </div>
                     
-                    ${filteredCustomers.length === 0 ? `
+                    ${sortedCustomers.length === 0 ? `
                         <div class="empty-state">
                             <div class="empty-state-icon">👥</div>
-                            <div class="empty-state-title">顧客が登録されていません</div>
-                            <p>「新規顧客を追加」ボタンから登録を開始してください</p>
+                            <div class="empty-state-title">${state.searchQuery ? '検索結果がありません' : '顧客が登録されていません'}</div>
+                            <p>${state.searchQuery ? '別のキーワードで検索してください' : '「新規顧客を追加」ボタンから登録を開始してください'}</p>
                         </div>
                     ` : `
                         <div class="customer-list">
-                            ${filteredCustomers.map(customer => `
+                            ${sortedCustomers.map(customer => `
                                 <div class="customer-item" onclick="selectCustomer('${customer.id}')">
                                     <div class="customer-item-header">
                                         <div class="customer-name">
                                             <span class="customer-code">${customer.code || 'コードなし'}</span>
-                                            ${customer.name}
+                                            <span>${customer.name}</span>
+                                            ${getBadgeHtml(customer.updatedAt, customer.createdAt)}
                                         </div>
                                     </div>
                                     <div class="customer-info">
@@ -1055,7 +1170,7 @@
             return `
                 <div class="header">
                     <div style="display: flex; align-items: center; gap: 16px;">
-                        <button class="btn btn-secondary" onclick="state.selectedCustomer = null; render();">
+                        <button class="btn btn-secondary" onclick="backToCustomerList()">
                             ← 戻る
                         </button>
                         <div>
@@ -1077,19 +1192,19 @@
                 <div class="content">
                     <div class="tabs">
                         <div class="tab ${state.selectedTab === 'basic' ? 'active' : ''}" 
-                             onclick="state.selectedTab = 'basic'; render();">
+                             onclick="switchTab('basic')">
                             基本情報
                         </div>
                         <div class="tab ${state.selectedTab === 'contracts' ? 'active' : ''}" 
-                             onclick="state.selectedTab = 'contracts'; render();">
+                             onclick="switchTab('contracts')">
                             契約書
                         </div>
                         <div class="tab ${state.selectedTab === 'notes' ? 'active' : ''}" 
-                             onclick="state.selectedTab = 'notes'; render();">
+                             onclick="switchTab('notes')">
                             注意事項
                         </div>
                         <div class="tab ${state.selectedTab === 'containers' ? 'active' : ''}" 
-                             onclick="state.selectedTab = 'containers'; render();">
+                             onclick="switchTab('containers')">
                             コンテナ (${containers.length})
                         </div>
                     </div>
@@ -1097,6 +1212,16 @@
                     ${renderCustomerTab(customer)}
                 </div>
             `;
+        }
+
+        function backToCustomerList() {
+            state.selectedCustomer = null;
+            render();
+        }
+
+        function switchTab(tabName) {
+            state.selectedTab = tabName;
+            render();
         }
 
         function renderCustomerTab(customer) {
@@ -1215,7 +1340,7 @@
                             ✏️ 編集
                         </button>
                     </div>
-                    <div style="background: #f8fafc; padding: 16px; border-radius: 8px; white-space: pre-wrap;">
+                    <div style="background: #f8fafc; padding: 16px; border-radius: 8px; white-space: pre-wrap; text-align: left;">
                         ${customer.notes || '注意事項は登録されていません'}
                     </div>
                 </div>
@@ -1227,7 +1352,7 @@
                             ✏️ 編集
                         </button>
                     </div>
-                    <div style="background: #f8fafc; padding: 16px; border-radius: 8px; white-space: pre-wrap;">
+                    <div style="background: #f8fafc; padding: 16px; border-radius: 8px; white-space: pre-wrap; text-align: left;">
                         ${customer.slipInstructions || '伝票の書き方は登録されていません'}
                     </div>
                 </div>
@@ -1454,6 +1579,9 @@
             try {
                 showLoading('保存中...');
                 
+                // 既存の顧客データを取得
+                const existingCustomer = data.id ? state.customers.find(c => c.id === data.id) : null;
+                
                 const customer = {
                     id: data.id || `c${Date.now()}`,
                     code: data.code,
@@ -1468,11 +1596,14 @@
                     collectionDay: data.collectionDay,
                     notes: data.notes,
                     slipInstructions: data.slipInstructions,
-                    contracts: '[]',
-                    images: '[]',
-                    createdAt: data.id ? state.customers.find(c => c.id === data.id).createdAt : new Date().toISOString(),
+                    // 既存データを保持
+                    contracts: existingCustomer ? existingCustomer.contracts : '[]',
+                    images: existingCustomer ? existingCustomer.images : '[]',
+                    createdAt: existingCustomer ? existingCustomer.createdAt : new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 };
+                
+                console.log('💾 保存データ:', customer);
                 
                 const action = data.id ? 'update' : 'add';
                 await gasPost(action, 'customers', customer);
@@ -1493,7 +1624,7 @@
                 render();
                 
             } catch (error) {
-                console.error('保存エラー:', error);
+                console.error('❌ 保存エラー:', error);
                 alert('保存に失敗しました: ' + error.message);
                 hideLoading();
             }
@@ -1525,7 +1656,7 @@
                 render();
                 
             } catch (error) {
-                console.error('削除エラー:', error);
+                console.error('❌ 削除エラー:', error);
                 alert('削除に失敗しました: ' + error.message);
                 hideLoading();
             }
@@ -1565,11 +1696,11 @@
                                 
                                 <div class="form-group">
                                     <label>コンテナタイプ *</label>
-                                    <div style="display: grid; gap: 8px;">
+                                    <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
                                         ${['1.5㎥', '2.5㎥', '2.5㎥鉄籠', '3.0㎥', '4.0㎥', '5.0㎥', 'プラドラム'].map((type, index) => `
-                                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                                <input type="radio" name="type" value="${type}" ${index === 0 && !container ? 'checked' : ''} ${container?.type === type ? 'checked' : ''} required style="margin: 0;">
-                                                <span>${type}</span>
+                                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;">
+                                                <input type="radio" name="type" value="${type}" ${index === 0 && !container ? 'checked' : ''} ${container?.type === type ? 'checked' : ''} required style="margin: 0; flex-shrink: 0;">
+                                                <span style="white-space: nowrap;">${type}</span>
                                             </label>
                                         `).join('')}
                                     </div>
@@ -1694,7 +1825,7 @@
                 render();
                 
             } catch (error) {
-                console.error('保存エラー:', error);
+                console.error('❌ 保存エラー:', error);
                 alert('保存に失敗しました: ' + error.message);
                 hideLoading();
             }
@@ -1728,7 +1859,7 @@
                 render();
                 
             } catch (error) {
-                console.error('返却処理エラー:', error);
+                console.error('❌ 返却処理エラー:', error);
                 alert('返却処理に失敗しました: ' + error.message);
                 hideLoading();
             }
@@ -1748,7 +1879,7 @@
                 render();
                 
             } catch (error) {
-                console.error('削除エラー:', error);
+                console.error('❌ 削除エラー:', error);
                 alert('削除に失敗しました: ' + error.message);
                 hideLoading();
             }
@@ -1784,77 +1915,14 @@
                 render();
                 
             } catch (error) {
-                console.error('請求処理エラー:', error);
+                console.error('❌ 請求処理エラー:', error);
                 alert('請求処理に失敗しました: ' + error.message);
                 hideLoading();
             }
         }
 
         // ========================================
-        // ユーティリティ
-        // ========================================
-        function showLoading(text = '読み込み中...') {
-            document.getElementById('loading-text').textContent = text;
-            document.getElementById('loading').classList.add('show');
-        }
-
-        function hideLoading() {
-            document.getElementById('loading').classList.remove('show');
-        }
-
-        function closeModal(modalId) {
-            const modal = document.getElementById(modalId);
-            if (modal) {
-                modal.remove();
-            }
-        }
-
-        function parseJSON(str) {
-            try {
-                return JSON.parse(str);
-            } catch {
-                return null;
-            }
-        }
-
-        function formatDate(dateString) {
-            if (!dateString) return '';
-            const date = new Date(dateString);
-            if (isNaN(date)) return dateString;
-            return date.toISOString().split('T')[0];
-        }
-
-        function convertDriveUrl(url) {
-            if (!url) return '';
-            const match = url.match(/\/d\/(.+?)\//);
-            if (match) {
-                return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w500`;
-            }
-            return url;
-        }
-
-        function getContractCount(customer) {
-            const contracts = parseJSON(customer.contracts) || [];
-            return contracts.length;
-        }
-
-        function getCustomerContainers(customerId) {
-            return state.containers.filter(c => c.customerId === customerId && c.status === 'レンタル中');
-        }
-
-        function getCustomerContainerCount(customerId) {
-            return getCustomerContainers(customerId).length;
-        }
-
-        function daysUntilBilling(billingDate) {
-            if (!billingDate) return null;
-            const today = new Date();
-            const billing = new Date(billingDate);
-            return Math.ceil((billing - today) / (24 * 60 * 60 * 1000));
-        }
-
-        // ========================================
-        // CSVエクスポート
+        // CSV機能
         // ========================================
         function exportCustomersCSV() {
             if (state.customers.length === 0) {
@@ -1890,9 +1958,6 @@
             alert('✅ CSVファイルをエクスポートしました');
         }
 
-        // ========================================
-        // CSVインポート
-        // ========================================
         function importCustomersCSV() {
             const input = document.createElement('input');
             input.type = 'file';
@@ -1951,7 +2016,7 @@
                         render();
                         
                     } catch (error) {
-                        console.error('インポートエラー:', error);
+                        console.error('❌ インポートエラー:', error);
                         alert('インポートに失敗しました: ' + error.message);
                         hideLoading();
                     }
@@ -1964,7 +2029,7 @@
         }
 
         // ========================================
-        // 契約書フォーム
+        // 契約書・画像・注意事項
         // ========================================
         function openContractForm(customerId) {
             const customer = state.customers.find(c => c.id === customerId);
@@ -2053,15 +2118,12 @@
                 render();
                 
             } catch (error) {
-                console.error('保存エラー:', error);
+                console.error('❌ 保存エラー:', error);
                 alert('保存に失敗しました: ' + error.message);
                 hideLoading();
             }
         }
 
-        // ========================================
-        // 注意事項編集
-        // ========================================
         function editNotes(customerId, field) {
             const customer = state.customers.find(c => c.id === customerId);
             const isNotes = field === 'notes';
@@ -2119,15 +2181,12 @@
                 render();
                 
             } catch (error) {
-                console.error('保存エラー:', error);
+                console.error('❌ 保存エラー:', error);
                 alert('保存に失敗しました: ' + error.message);
                 hideLoading();
             }
         }
 
-        // ========================================
-        // 画像追加
-        // ========================================
         function openImageForm(customerId) {
             const customer = state.customers.find(c => c.id === customerId);
             
@@ -2202,10 +2261,73 @@
                 render();
                 
             } catch (error) {
-                console.error('保存エラー:', error);
+                console.error('❌ 保存エラー:', error);
                 alert('保存に失敗しました: ' + error.message);
                 hideLoading();
             }
+        }
+
+        // ========================================
+        // ユーティリティ
+        // ========================================
+        function showLoading(text = '読み込み中...') {
+            document.getElementById('loading-text').textContent = text;
+            document.getElementById('loading').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.remove('show');
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        function parseJSON(str) {
+            try {
+                return JSON.parse(str);
+            } catch {
+                return null;
+            }
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            if (isNaN(date)) return dateString;
+            return date.toISOString().split('T')[0];
+        }
+
+        function convertDriveUrl(url) {
+            if (!url) return '';
+            const match = url.match(/\/d\/(.+?)\//);
+            if (match) {
+                return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w500`;
+            }
+            return url;
+        }
+
+        function getContractCount(customer) {
+            const contracts = parseJSON(customer.contracts) || [];
+            return contracts.length;
+        }
+
+        function getCustomerContainers(customerId) {
+            return state.containers.filter(c => c.customerId === customerId && c.status === 'レンタル中');
+        }
+
+        function getCustomerContainerCount(customerId) {
+            return getCustomerContainers(customerId).length;
+        }
+
+        function daysUntilBilling(billingDate) {
+            if (!billingDate) return null;
+            const today = new Date();
+            const billing = new Date(billingDate);
+            return Math.ceil((billing - today) / (24 * 60 * 60 * 1000));
         }
 
         // ========================================
