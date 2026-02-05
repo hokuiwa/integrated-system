@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>統合管理システム Pro v2.1</title>
+    <title>統合管理システム Pro v2.2</title>
     <style>
         * {
             margin: 0;
@@ -720,12 +720,97 @@
         };
 
         // ========================================
-        // 検索機能（修正版）
+        // 検索機能（修正版 - リストのみ更新）
         // ========================================
+        function handleSearchInput(value) {
+            console.log('🔍 検索実行:', value);
+            state.searchQuery = value;
+            updateCustomerListOnly();
+        }
+
         function handleSearch(value) {
             console.log('🔍 検索実行:', value);
             state.searchQuery = value;
             render();
+        }
+
+        function updateCustomerListOnly() {
+            // 顧客リスト部分だけを更新（検索バーはそのまま）
+            const listContainer = document.querySelector('.customer-list');
+            if (!listContainer) return;
+
+            // フィルタリング
+            let filteredCustomers = [];
+            try {
+                filteredCustomers = state.customers.filter(c => {
+                    if (!state.searchQuery) return true;
+                    
+                    try {
+                        const query = String(state.searchQuery || '').toLowerCase();
+                        
+                        const safeStr = (val) => {
+                            try {
+                                return String(val || '');
+                            } catch (e) {
+                                return '';
+                            }
+                        };
+                        
+                        const match = (
+                            safeStr(c.name).toLowerCase().includes(query) ||
+                            safeStr(c.code).toLowerCase().includes(query) ||
+                            safeStr(c.kana).toLowerCase().includes(query) ||
+                            safeStr(c.address).toLowerCase().includes(query) ||
+                            safeStr(c.notes).toLowerCase().includes(query) ||
+                            safeStr(c.slipInstructions).toLowerCase().includes(query)
+                        );
+                        return match;
+                    } catch (e) {
+                        console.error('🔍 検索エラー:', e);
+                        return false;
+                    }
+                });
+            } catch (e) {
+                console.error('❌ フィルタリングエラー:', e);
+                filteredCustomers = state.customers;
+            }
+
+            const sortedCustomers = sortCustomers(filteredCustomers);
+
+            // リストのHTMLを生成
+            if (sortedCustomers.length === 0) {
+                listContainer.parentElement.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">👥</div>
+                        <div class="empty-state-title">検索結果がありません</div>
+                        <p>別のキーワードで検索してください</p>
+                    </div>
+                `;
+            } else {
+                listContainer.innerHTML = sortedCustomers.map(customer => `
+                    <div class="customer-item" onclick="selectCustomer('${customer.id}')">
+                        <div class="customer-item-header">
+                            <div class="customer-name">
+                                <span class="customer-code">${customer.code || 'コードなし'}</span>
+                                <span>${customer.name}</span>
+                                ${getBadgeHtml(customer.updatedAt, customer.createdAt)}
+                            </div>
+                        </div>
+                        <div class="customer-info">
+                            <div class="customer-info-row">
+                                📍 ${customer.address || '住所未登録'}
+                            </div>
+                            <div class="customer-info-row">
+                                📞 ${customer.tel || '電話番号未登録'}
+                            </div>
+                            <div class="customer-info-row">
+                                📄 契約書: ${getContractCount(customer)}件
+                                📦 コンテナ: ${getCustomerContainerCount(customer.id)}台レンタル中
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
         }
 
         // ========================================
@@ -881,10 +966,11 @@
         // 初期化
         // ========================================
         async function init() {
-            console.log('🚀 統合管理システム Pro v2.1 - エラーセーフ版');
-            console.log('📅 ビルド日時: 2026-02-05 23:50');
+            console.log('🚀 統合管理システム Pro v2.2 - 検索修正版');
+            console.log('📅 ビルド日時: 2026-02-06 00:10');
             console.log('✅ String()変換: 有効');
             console.log('✅ try-catch保護: 有効');
+            console.log('✅ 検索バー修正: 複数文字入力可能');
             
             showLoading('データを読み込んでいます...');
             try {
@@ -1170,7 +1256,7 @@
                                id="search-input"
                                placeholder="顧客名、コード、住所、注意事項で検索..." 
                                value="${state.searchQuery}"
-                               oninput="handleSearch(this.value)">
+                               oninput="handleSearchInput(this.value)">
                     </div>
                     
                     ${sortedCustomers.length === 0 ? `
