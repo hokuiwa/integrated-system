@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>統合管理システム Pro v2.3</title>
+    <title>統合管理システム Pro v2.4</title>
     <style>
         * {
             margin: 0;
@@ -746,6 +746,37 @@
         // ========================================
         let isComposing = false;  // IME入力中フラグ
 
+        // 文字列を検索用に正規化
+        function normalizeForSearch(str) {
+            if (!str) return '';
+            
+            try {
+                let normalized = String(str);
+                
+                // 全角英数字を半角に変換
+                normalized = normalized.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s) {
+                    return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+                });
+                
+                // カタカナをひらがなに変換
+                normalized = normalized.replace(/[\u30a1-\u30f6]/g, function(match) {
+                    const chr = match.charCodeAt(0) - 0x60;
+                    return String.fromCharCode(chr);
+                });
+                
+                // 小文字に統一
+                normalized = normalized.toLowerCase();
+                
+                // スペースを除去
+                normalized = normalized.replace(/\s+/g, '');
+                
+                return normalized;
+            } catch (e) {
+                console.error('正規化エラー:', e);
+                return String(str || '');
+            }
+        }
+
         function handleSearchInput(value) {
             // IME入力中は検索しない
             if (isComposing) {
@@ -808,7 +839,8 @@
                     if (!state.searchQuery) return true;
                     
                     try {
-                        const query = String(state.searchQuery || '').toLowerCase();
+                        // 検索キーワードを正規化
+                        const query = normalizeForSearch(state.searchQuery);
                         
                         const safeStr = (val) => {
                             try {
@@ -818,13 +850,14 @@
                             }
                         };
                         
+                        // 各フィールドを正規化して検索
                         const match = (
-                            safeStr(c.name).toLowerCase().includes(query) ||
-                            safeStr(c.code).toLowerCase().includes(query) ||
-                            safeStr(c.kana).toLowerCase().includes(query) ||
-                            safeStr(c.address).toLowerCase().includes(query) ||
-                            safeStr(c.notes).toLowerCase().includes(query) ||
-                            safeStr(c.slipInstructions).toLowerCase().includes(query)
+                            normalizeForSearch(c.name).includes(query) ||
+                            normalizeForSearch(c.code).includes(query) ||
+                            normalizeForSearch(c.kana).includes(query) ||
+                            normalizeForSearch(c.address).includes(query) ||
+                            normalizeForSearch(c.notes).includes(query) ||
+                            normalizeForSearch(c.slipInstructions).includes(query)
                         );
                         return match;
                     } catch (e) {
@@ -1044,12 +1077,13 @@
         // 初期化
         // ========================================
         async function init() {
-            console.log('🚀 統合管理システム Pro v2.3 - 検索完全修正版');
-            console.log('📅 ビルド日時: 2026-02-06 00:45');
+            console.log('🚀 統合管理システム Pro v2.4 - 表記ゆれ対応版');
+            console.log('📅 ビルド日時: 2026-02-06 01:15');
             console.log('✅ String()変換: 有効');
             console.log('✅ try-catch保護: 有効');
             console.log('✅ 検索バー修正: 複数文字入力可能');
             console.log('✅ IME対応: 日本語入力対応');
+            console.log('✅ 表記ゆれ対応: ひらがな・カタカナ・全角半角');
             console.log('✅ 検索クリア: ✕ボタン追加');
             
             showLoading('データを読み込んでいます...');
@@ -1269,31 +1303,24 @@
         function renderCustomerList() {
             console.log('📋 顧客一覧レンダリング開始');
             
-            // フィルタリング（完全エラーセーフ版）
+            // フィルタリング（正規化対応版）
             let filteredCustomers = [];
             try {
                 filteredCustomers = state.customers.filter(c => {
                     if (!state.searchQuery) return true;
                     
                     try {
-                        const query = String(state.searchQuery || '').toLowerCase();
+                        // 検索キーワードを正規化
+                        const query = normalizeForSearch(state.searchQuery);
                         
-                        // 安全な文字列変換関数
-                        const safeStr = (val) => {
-                            try {
-                                return String(val || '');
-                            } catch (e) {
-                                return '';
-                            }
-                        };
-                        
+                        // 各フィールドを正規化して検索
                         const match = (
-                            safeStr(c.name).toLowerCase().includes(query) ||
-                            safeStr(c.code).toLowerCase().includes(query) ||
-                            safeStr(c.kana).toLowerCase().includes(query) ||
-                            safeStr(c.address).toLowerCase().includes(query) ||
-                            safeStr(c.notes).toLowerCase().includes(query) ||
-                            safeStr(c.slipInstructions).toLowerCase().includes(query)
+                            normalizeForSearch(c.name).includes(query) ||
+                            normalizeForSearch(c.code).includes(query) ||
+                            normalizeForSearch(c.kana).includes(query) ||
+                            normalizeForSearch(c.address).includes(query) ||
+                            normalizeForSearch(c.notes).includes(query) ||
+                            normalizeForSearch(c.slipInstructions).includes(query)
                         );
                         return match;
                     } catch (e) {
