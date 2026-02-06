@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>統合管理システム Pro v2.2</title>
+    <title>統合管理システム Pro v2.3</title>
     <style>
         * {
             margin: 0;
@@ -383,7 +383,7 @@
 
         .search-bar input {
             width: 100%;
-            padding: 12px 12px 12px 44px;
+            padding: 12px 44px 12px 44px;
             border: 1px solid #cbd5e1;
             border-radius: 8px;
             font-size: 14px;
@@ -395,6 +395,28 @@
             left: 16px;
             top: 50%;
             transform: translateY(-50%);
+        }
+
+        .search-clear-btn {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #64748b;
+            padding: 4px 8px;
+            display: none;
+        }
+
+        .search-clear-btn:hover {
+            color: #1e293b;
+        }
+
+        .search-clear-btn.show {
+            display: block;
         }
 
         /* コンテナアイテム */
@@ -722,10 +744,44 @@
         // ========================================
         // 検索機能（修正版 - リストのみ更新）
         // ========================================
+        let isComposing = false;  // IME入力中フラグ
+
         function handleSearchInput(value) {
+            // IME入力中は検索しない
+            if (isComposing) {
+                console.log('🔍 IME入力中のためスキップ');
+                return;
+            }
+            
             console.log('🔍 検索実行:', value);
             state.searchQuery = value;
+            
+            // クリアボタンの表示制御
+            const clearBtn = document.querySelector('.search-clear-btn');
+            if (clearBtn) {
+                if (value) {
+                    clearBtn.classList.add('show');
+                } else {
+                    clearBtn.classList.remove('show');
+                }
+            }
+            
             updateCustomerListOnly();
+        }
+
+        function clearSearch() {
+            console.log('🔍 検索をクリア');
+            state.searchQuery = '';
+            const searchInput = document.getElementById('search-input');
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.focus();
+            }
+            const clearBtn = document.querySelector('.search-clear-btn');
+            if (clearBtn) {
+                clearBtn.classList.remove('show');
+            }
+            render();
         }
 
         function handleSearch(value) {
@@ -737,7 +793,13 @@
         function updateCustomerListOnly() {
             // 顧客リスト部分だけを更新（検索バーはそのまま）
             const listContainer = document.querySelector('.customer-list');
-            if (!listContainer) return;
+            const emptyStateContainer = document.querySelector('.empty-state');
+            
+            if (!listContainer && !emptyStateContainer) {
+                // リストコンテナが存在しない場合は全体を再描画
+                render();
+                return;
+            }
 
             // フィルタリング
             let filteredCustomers = [];
@@ -777,39 +839,55 @@
 
             const sortedCustomers = sortCustomers(filteredCustomers);
 
-            // リストのHTMLを生成
+            // 検索結果が0件の場合
             if (sortedCustomers.length === 0) {
-                listContainer.parentElement.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">👥</div>
-                        <div class="empty-state-title">検索結果がありません</div>
-                        <p>別のキーワードで検索してください</p>
-                    </div>
-                `;
-            } else {
-                listContainer.innerHTML = sortedCustomers.map(customer => `
-                    <div class="customer-item" onclick="selectCustomer('${customer.id}')">
-                        <div class="customer-item-header">
-                            <div class="customer-name">
-                                <span class="customer-code">${customer.code || 'コードなし'}</span>
-                                <span>${customer.name}</span>
-                                ${getBadgeHtml(customer.updatedAt, customer.createdAt)}
-                            </div>
+                // リストコンテナを空状態に置き換え
+                if (listContainer) {
+                    const parent = listContainer.parentElement;
+                    const emptyHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔍</div>
+                            <div class="empty-state-title">検索結果がありません</div>
+                            <p>別のキーワードで検索してください</p>
                         </div>
-                        <div class="customer-info">
-                            <div class="customer-info-row">
-                                📍 ${customer.address || '住所未登録'}
-                            </div>
-                            <div class="customer-info-row">
-                                📞 ${customer.tel || '電話番号未登録'}
-                            </div>
-                            <div class="customer-info-row">
-                                📄 契約書: ${getContractCount(customer)}件
-                                📦 コンテナ: ${getCustomerContainerCount(customer.id)}台レンタル中
-                            </div>
+                    `;
+                    listContainer.outerHTML = emptyHTML;
+                }
+                return;
+            }
+
+            // 検索結果がある場合
+            const customerHTML = sortedCustomers.map(customer => `
+                <div class="customer-item" onclick="selectCustomer('${customer.id}')">
+                    <div class="customer-item-header">
+                        <div class="customer-name">
+                            <span class="customer-code">${customer.code || 'コードなし'}</span>
+                            <span>${customer.name}</span>
+                            ${getBadgeHtml(customer.updatedAt, customer.createdAt)}
                         </div>
                     </div>
-                `).join('');
+                    <div class="customer-info">
+                        <div class="customer-info-row">
+                            📍 ${customer.address || '住所未登録'}
+                        </div>
+                        <div class="customer-info-row">
+                            📞 ${customer.tel || '電話番号未登録'}
+                        </div>
+                        <div class="customer-info-row">
+                            📄 契約書: ${getContractCount(customer)}件
+                            📦 コンテナ: ${getCustomerContainerCount(customer.id)}台レンタル中
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            // リストコンテナがある場合は更新
+            if (listContainer) {
+                listContainer.innerHTML = customerHTML;
+            } else if (emptyStateContainer) {
+                // 空状態から復帰
+                const newListHTML = `<div class="customer-list">${customerHTML}</div>`;
+                emptyStateContainer.outerHTML = newListHTML;
             }
         }
 
@@ -966,11 +1044,13 @@
         // 初期化
         // ========================================
         async function init() {
-            console.log('🚀 統合管理システム Pro v2.2 - 検索修正版');
-            console.log('📅 ビルド日時: 2026-02-06 00:10');
+            console.log('🚀 統合管理システム Pro v2.3 - 検索完全修正版');
+            console.log('📅 ビルド日時: 2026-02-06 00:45');
             console.log('✅ String()変換: 有効');
             console.log('✅ try-catch保護: 有効');
             console.log('✅ 検索バー修正: 複数文字入力可能');
+            console.log('✅ IME対応: 日本語入力対応');
+            console.log('✅ 検索クリア: ✕ボタン追加');
             
             showLoading('データを読み込んでいます...');
             try {
@@ -1256,7 +1336,12 @@
                                id="search-input"
                                placeholder="顧客名、コード、住所、注意事項で検索..." 
                                value="${state.searchQuery}"
-                               oninput="handleSearchInput(this.value)">
+                               oninput="handleSearchInput(this.value)"
+                               oncompositionstart="isComposing = true"
+                               oncompositionend="isComposing = false; handleSearchInput(this.value)">
+                        <button class="search-clear-btn ${state.searchQuery ? 'show' : ''}" 
+                                onclick="clearSearch()"
+                                title="検索をクリア">✕</button>
                     </div>
                     
                     ${sortedCustomers.length === 0 ? `
